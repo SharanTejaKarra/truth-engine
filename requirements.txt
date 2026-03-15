@@ -1,0 +1,26 @@
+# Core
+streamlit>=1.30.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# Document Parsing
+pypdf>=3.17.0
+pdfplumber>=0.10.0
+markdown>=3.5.0
+
+# Embeddings & Vector DB
+sentence-transformers>=2.3.0
+chromadb>=0.4.22
+
+# Keyword Search
+rank-bm25>=0.2.2
+
+# Re-ranking (Cross-Encoder)
+# (uses sentence-transformers cross-encoder models)
+
+# LLM
+google-generativeai>=0.8.0
+
+# Utilities
+numpy>=1.24.0
+pandas>=2.0.0

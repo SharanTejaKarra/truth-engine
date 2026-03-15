@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+data/indices/*
+!data/indices/.gitkeep
+.chroma/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
