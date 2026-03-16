@@ -3,7 +3,7 @@
 > A RAG-based knowledge reconciliation system that retrieves, reconciles, and resolves
 > conflicting information across multiple enterprise data sources.
 
-**Author:** Rakshit Munot
+**Author:** Rakshit Munot & Sharan Teja Reddy Karra
 
 ---
 
