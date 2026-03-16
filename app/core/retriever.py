@@ -27,6 +27,15 @@ class HybridRetriever:
         self.bm25_corpus: list[DocumentChunk] = []
         self.cross_encoder = CrossEncoder(RERANKER_MODEL)
 
+    @staticmethod
+    def _build_searchable_text(doc: DocumentChunk) -> str:
+        """Build searchable text from content and metadata for BM25/re-ranking."""
+        parts = [doc.content]
+        for key, val in doc.metadata.items():
+            if val and isinstance(val, str) and val.strip():
+                parts.append(f"{key} {val}")
+        return " ".join(parts)
+
     def _build_bm25_index(self):
         """Lazy-build BM25 index from all documents in the vector store."""
         self.bm25_corpus = self.vector_store.get_all_documents()
@@ -35,7 +44,7 @@ class HybridRetriever:
             self.bm25_index = None
             return
 
-        tokenized = [doc.content.lower().split() for doc in self.bm25_corpus]
+        tokenized = [self._build_searchable_text(doc).lower().split() for doc in self.bm25_corpus]
         self.bm25_index = BM25Okapi(tokenized)
         logger.info("Built BM25 index over %d documents.", len(self.bm25_corpus))
 
@@ -107,7 +116,7 @@ class HybridRetriever:
         if not results:
             return []
 
-        pairs = [(query, r.chunk.content) for r in results]
+        pairs = [(query, self._build_searchable_text(r.chunk)) for r in results]
         scores = self.cross_encoder.predict(pairs)
 
         for result, score in zip(results, scores):

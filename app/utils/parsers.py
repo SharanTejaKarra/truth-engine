@@ -117,32 +117,89 @@ def parse_json_csv(file_path: str) -> list[DocumentChunk]:
             return []
         data = json.loads(raw)
         if isinstance(data, dict):
-            # Handle nested JSON: look for an array field (e.g. "logs", "tickets", "records")
-            for key, val in data.items():
-                if isinstance(val, list) and val and isinstance(val[0], dict):
-                    data = val
-                    break
+            # Handle nested JSON: recursively find the first array of dicts
+            found = _find_records_array(data)
+            if found is not None:
+                data = found
             else:
                 data = [data]
         elif not isinstance(data, list):
             data = [data]
 
         for idx, ticket in enumerate(data):
-            ticket_id = ticket.get("ticket_id", ticket.get("id", f"unknown-{idx}"))
-            issue = ticket.get("issue", ticket.get("summary", ticket.get("description", "")))
+            # Flexible field name resolution with broad fallbacks
+            ticket_id = (
+                ticket.get("ticket_id") or ticket.get("id")
+                or ticket.get("ticket") or ticket.get("case_id")
+                or ticket.get("incident_id") or ticket.get("ref")
+                or ticket.get("reference") or f"unknown-{idx}"
+            )
+            issue = (
+                ticket.get("issue") or ticket.get("summary")
+                or ticket.get("description") or ticket.get("problem")
+                or ticket.get("title") or ticket.get("subject") or ""
+            )
             description = ticket.get("description", "")
-            resolution = ticket.get("resolution", "")
-            status = ticket.get("resolution_status", ticket.get("status", ""))
-            engineer = ticket.get("engineer", "")
-            timestamp = ticket.get("timestamp", ticket.get("date", ""))
+            resolution = (
+                ticket.get("resolution") or ticket.get("fix")
+                or ticket.get("solution") or ticket.get("fix_applied")
+                or ticket.get("workaround") or ""
+            )
+            status = (
+                ticket.get("resolution_status") or ticket.get("status")
+                or ticket.get("state") or ticket.get("outcome") or ""
+            )
+            engineer = (
+                ticket.get("engineer") or ticket.get("assigned_to")
+                or ticket.get("resolved_by") or ticket.get("assignee")
+                or ticket.get("owner") or ticket.get("technician")
+                or ticket.get("handled_by") or ticket.get("fixed_by") or ""
+            )
+            timestamp = (
+                ticket.get("timestamp") or ticket.get("date")
+                or ticket.get("created_at") or ticket.get("updated_at")
+                or ticket.get("resolved_at") or ""
+            )
+            error_code = (
+                ticket.get("related_error_code") or ticket.get("error_code")
+                or ticket.get("error") or ""
+            )
+            category = (
+                ticket.get("category") or ticket.get("type")
+                or ticket.get("component") or ""
+            )
 
-            content = f"Ticket {ticket_id}: {issue}"
+            # Build content with ALL relevant fields so they are searchable
+            # and visible to the LLM
+            content = f"Ticket {ticket_id}"
+            if engineer:
+                content += f" (Engineer: {engineer})"
+            if timestamp:
+                content += f" [{timestamp}]"
+            content += f": {issue}"
             if description and description != issue:
                 content += f". Details: {description}"
             if resolution:
                 content += f". Resolution: {resolution}"
             if status:
                 content += f". Status: {status}"
+            if error_code:
+                content += f". Error Code: {error_code}"
+            if category:
+                content += f". Category: {category}"
+
+            # Preserve ALL original fields as metadata (like CSV parser)
+            base_metadata = {}
+            for k, v in ticket.items():
+                if v is not None:
+                    base_metadata[str(k)] = str(v)
+                else:
+                    base_metadata[str(k)] = ""
+            # Ensure canonical keys are always present
+            base_metadata["ticket_id"] = str(ticket_id)
+            base_metadata["timestamp"] = str(timestamp)
+            base_metadata["engineer"] = str(engineer)
+            base_metadata["resolution_status"] = str(status)
 
             chunks.append(
                 DocumentChunk(
@@ -150,12 +207,7 @@ def parse_json_csv(file_path: str) -> list[DocumentChunk]:
                     content=content,
                     source_type="support_log",
                     source_file=filename,
-                    metadata={
-                        "ticket_id": str(ticket_id),
-                        "timestamp": str(timestamp),
-                        "engineer": str(engineer),
-                        "resolution_status": str(status),
-                    },
+                    metadata=base_metadata,
                 )
             )
 
@@ -167,19 +219,46 @@ def parse_json_csv(file_path: str) -> list[DocumentChunk]:
 
         reader = csv.DictReader(raw.splitlines())
         for idx, row in enumerate(reader):
-            ticket_id = row.get("ticket_id", row.get("id", f"row-{idx}"))
-            issue = row.get("issue", row.get("summary", row.get("description", "")))
+            ticket_id = (
+                row.get("ticket_id") or row.get("id") or f"row-{idx}"
+            )
+            issue = (
+                row.get("issue") or row.get("summary")
+                or row.get("description") or ""
+            )
             description = row.get("description", "")
-            resolution = row.get("resolution", row.get("fix_applied", ""))
-            status = row.get("resolution_status", row.get("status", ""))
+            resolution = (
+                row.get("resolution") or row.get("fix_applied")
+                or row.get("fix") or row.get("solution") or ""
+            )
+            status = (
+                row.get("resolution_status") or row.get("status") or ""
+            )
+            engineer = (
+                row.get("engineer") or row.get("assigned_to")
+                or row.get("resolved_by") or ""
+            )
+            timestamp = row.get("date") or row.get("timestamp") or ""
+            error_code = row.get("related_error_code") or row.get("error_code") or ""
+            category = row.get("category") or row.get("type") or ""
 
-            content = f"Ticket {ticket_id}: {issue}"
+            # Build content with ALL relevant fields
+            content = f"Ticket {ticket_id}"
+            if engineer:
+                content += f" (Engineer: {engineer})"
+            if timestamp:
+                content += f" [{timestamp}]"
+            content += f": {issue}"
             if description and description != issue:
                 content += f". Details: {description}"
             if resolution:
                 content += f". Resolution: {resolution}"
             if status:
                 content += f". Status: {status}"
+            if error_code:
+                content += f". Error Code: {error_code}"
+            if category:
+                content += f". Category: {category}"
 
             metadata = {k: str(v) for k, v in row.items()}
             chunks.append(
@@ -233,6 +312,18 @@ def parse_markdown(file_path: str) -> list[DocumentChunk]:
 # ── Helpers ────────────────────────────────────────────────────────────
 
 
+def _find_records_array(data) -> list[dict] | None:
+    """Recursively find the first array of dicts in a nested JSON structure."""
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data
+    if isinstance(data, dict):
+        for val in data.values():
+            result = _find_records_array(val)
+            if result is not None:
+                return result
+    return None
+
+
 def _format_table(table: list[list[str | None]]) -> str:
     """Convert a pdfplumber table to a readable text representation."""
     if not table:
@@ -244,8 +335,38 @@ def _format_table(table: list[list[str | None]]) -> str:
     return "\n".join(rows)
 
 
+def _is_separator_line(stripped: str) -> bool:
+    """Check if a line is a visual separator (===, ---, etc.)."""
+    if not stripped or len(stripped) < 3:
+        return False
+    return all(c in "=-_*~" for c in stripped)
+
+
+def _is_section_header(stripped: str) -> bool:
+    """Check if a line looks like a section header.
+
+    Detects ALL-CAPS headers that may contain spaces, numbers, colons, etc.
+    (e.g. 'SECTION 1: PRODUCT OVERVIEW', 'TABLE OF CONTENTS').
+    """
+    if not stripped or len(stripped) <= 3:
+        return False
+    if _is_separator_line(stripped):
+        return False
+    alpha_chars = [c for c in stripped if c.isalpha()]
+    if (
+        len(alpha_chars) >= 3
+        and stripped == stripped.upper()
+        and len(alpha_chars) / max(len(stripped), 1) > 0.3
+    ):
+        return True
+    return False
+
+
 def _split_txt_sections(text: str) -> list[tuple[str, str]]:
-    """Split plain text into sections based on ALL-CAPS lines or '## ' prefixes."""
+    """Split plain text into sections based on ALL-CAPS lines or '## ' prefixes.
+
+    Also skips visual separator lines (===, ---, etc.) to avoid noise.
+    """
     lines = text.split("\n")
     sections: list[tuple[str, str]] = []
     current_title = "Introduction"
@@ -258,11 +379,14 @@ def _split_txt_sections(text: str) -> list[tuple[str, str]]:
                 sections.append((current_title, "\n".join(current_body)))
             current_title = stripped[3:].strip()
             current_body = []
-        elif stripped and stripped == stripped.upper() and len(stripped) > 3 and stripped.isalpha():
+        elif _is_section_header(stripped):
             if current_body:
                 sections.append((current_title, "\n".join(current_body)))
             current_title = stripped
             current_body = []
+        elif _is_separator_line(stripped):
+            # Skip decorator lines — don't add to body
+            continue
         else:
             current_body.append(line)
 

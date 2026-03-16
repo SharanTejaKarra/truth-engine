@@ -105,9 +105,19 @@ class RAGEngine:
             trust_level = SOURCE_TRUST.get(r.chunk.source_type, 0)
             trust_word = {3: "HIGH", 2: "MEDIUM", 1: "LOW"}.get(trust_level, "UNKNOWN")
 
+            # Include short, structured metadata (skip long text already in content)
+            meta_parts = []
+            for key, val in r.chunk.metadata.items():
+                val_str = str(val).strip()
+                if val_str and len(val_str) < 100:
+                    meta_parts.append(f"{key}: {val_str}")
+            meta_line = ""
+            if meta_parts:
+                meta_line = f"\n  Metadata: {' | '.join(meta_parts)}"
+
             parts.append(
                 f"[Source: {label} | Trust: {trust_word} | File: {r.chunk.source_file}]\n"
-                f"{r.chunk.content}\n---"
+                f"{r.chunk.content}{meta_line}\n---"
             )
 
         if conflicts:
@@ -165,6 +175,9 @@ class RAGEngine:
             f"'I don't have sufficient information to answer this question confidently. "
             f"The available sources do not provide a clear answer.'\n"
             f"6. Never make up information not present in the context.\n"
+            f"7. Pay attention to Metadata lines — they contain structured fields like "
+            f"engineer names, ticket IDs, timestamps, error codes, and resolution status. "
+            f"Use these to answer questions about who, when, and what.\n"
             f"{conflict_note}"
             f"{low_confidence_note}\n\n"
             f"CONTEXT:\n{context}\n\n"
